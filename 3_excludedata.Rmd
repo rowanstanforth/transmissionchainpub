@@ -1,0 +1,353 @@
+---
+title: "3. Data exclude"
+output: html_document
+date: "2023-06-09"
+---
+
+# Set-up
+```{r pack}
+r <- getOption("repos")
+r["CRAN"] <- "https://cran.biotools.fr/"
+options(repos = r)
+install.packages("pacman")
+library("pacman")
+p_load(dplyr)
+p_load(rio)
+p_load(here)
+p_load(summarytools)
+p_load(DiagrammeR)
+p_load(DiagrammeRsvg)
+p_load(rsvg)
+p_load(DiagrammeR)
+p_load(webshot)
+p_load(DiagrammeR)
+```
+
+```{r load}
+excluding <- import(here ("Data","Created","scored_data.csv"))
+```
+
+# Exclusions
+## Remove test and duplicate rows
+```{r exclude}
+
+# Exclude rows where 'test' column is equal to 'yes'
+excluding <- excluding[excluding$test != "yes", ]
+
+# remove the duplicate rows from my data
+exclude_ids <- c(354, 355, 356, 353, 343, 340, 305, 298, 192, 141, 140, 40, 94, 241, 242)
+excluding <- excluding[!(excluding$id %in% exclude_ids), ]
+
+duplicate_rows <- c('1103_23145', '9995_23144')
+
+excluding <- excluding[!(excluding$sessionid %in% duplicate_rows), ]
+
+print(nrow(excluding))
+
+## exclude the participant who asked to be deleted
+asked_to_be_deleted_rows <- c('3254_23144')
+excluding <- excluding[!(excluding$sessionid %in% asked_to_be_deleted_rows), ]
+print(nrow(excluding))
+```
+## Exclusion justifications
+Gradually exclude rows from data set based on different reasons
+
+``` {r exluding}
+# Exlcude rows where 'textoutput' is blank OR Null (because participants didn't go that far)
+
+excluding <- excluding[!(is.na(excluding$textoutput) | excluding$textoutput == "" | excluding$textoutput == "NULL"), ]
+print(nrow(excluding))
+
+# Specify the rows to be removed based on different reasons
+#knew it was a memory test
+
+knew_memory_rows <- c('8309_23132', '7840_23136', '1914_23137', '8982_23137', '1382_23137', '8245_23137','7776_23137', '8645_23137', '118_23137', '4623_23137', '8309_23137', '9948_23137',                '7220_23137', '151_23144', '6311_23144', '1025_23132')
+
+#rushed or didnt fully complete the survey
+incomplete_rushed_rows <- c('9257_23136', '6863_23137', '7662_23137', '3961_23144', '5009_23144')
+
+#remaning duplicates
+duplicate_rows <- c('1103_23145', '9995_23144')
+
+#French wasnt first language
+english_speaker_rows <- c('551_23137')
+
+# Remove rows based on the above different reasons
+excluding <- excluding[!(excluding$sessionid %in% incomplete_rushed_rows), ]
+print(nrow(excluding))
+excluding <- excluding[!(excluding$sessionid %in% knew_memory_rows), ]
+print(nrow(excluding))
+excluding <- excluding[!(excluding$sessionid =='551_23137'), ]
+#participant who didn't take it seriously
+excluding <- excluding[!(excluding$sessionid =='6810_23136'), ]
+print(nrow(excluding))
+
+# Update specific rows with new values (two cases where the participants had to reload their survey and therefore their treatments were incorrect)
+excluding[excluding$sessionid %in% c("5156_23145", "2875_23144", "4713_23144"), c("treatment", "treatment2")] <- 2
+#one lady where the birth year didnt go back enough so had to enter manually
+excluding[excluding$sessionid == "4713_23144", c("birth_year", "age")] <- c(1949, 74.1)
+
+#exclude the sex =other
+excluding <- excluding[excluding$Sex != "Autre", ]
+
+print(nrow(excluding))
+
+```
+
+# Examine exclusions
+```{r examin_exclu}
+
+## examine the excluded data
+
+view(dfSummary(excluding))
+print(nrow(excluding))
+```
+
+# Renaming and selecting out columns
+```{r renaming}
+
+############## changing the treatment column names and exluding columns not needed
+
+# Rename columns
+excluding <- excluding %>%
+  rename(fulltreatment = treatment, treatment = treatment2)
+
+# Exclude columns
+excluding <- excluding %>%
+  select(-birth_year, -birth_month, -sexeautre, -genreautre, -timesubmits1,
+         -timesubmits2, -textinputp1, -textinputp2, -textinputp3,
+         -timesubmits3, -timesubmits4, -third_contnow, -fourth_contnow,
+         -third_contpart, -fourth_contpart)
+
+# Calculate the median and SD
+
+median_age <- median(excluding$age)
+sd_age <- sd(excluding$age)
+
+# Output the median and SD
+print(paste("Median:", median_age))
+print(paste("SD:", sd_age))
+
+# Calculate quartiles
+age_quartiles <- quantile(excluding$age, probs = c(0, 0.25, 0.5, 0.75, 1))
+# Assign new column of age categories based on quartiles
+excluding$agecat <- cut(excluding$age, breaks = age_quartiles, labels = c("Q1", "Q2", "Q3", "Q4"), include.lowest = TRUE)
+
+#
+print(nrow(excluding))
+```
+# Renaming variables
+``` {r rename}
+colnames(excluding) <- c("id",	"Sessionid",	"Fulltreatment",	"date",	"Student",	"university",	"subjectbroad",	"gender",	"Sex",	"parent_degree",	"education_level",	"textoutput",	"contrausenow",	"typecontranow",	"contrausepast",	"typecontrapast",	"plannedcontrachange",	"partnercontrause",
+"typecontrapartner",	"sideffects",	"stopcozside",	"sevside",	"sexuality",	"sexualityother",	"child",	"timewriting",	"partner_sex",	"order",	"treatment",	"first_contranow",	"second_contranow",	"first_contrapast",	"second_contrapast",
+"third_contrapast",	"fourth_contrapast",	"first_contrapart",	"second_contrapart",	"age",	"timereading",	"contranowsimple",	"contrapastsimple",	"contrapartsimple",	"contra_overall", "currmalecont", "pastmalecont",	"sexualitysimple",	"kidsimple",	"sideffectssim",	"partnersexsimple",	"usecontraever",	"Subject", "education_simple", "location",	"test",	"gmc",	"con",	"fertcont",	"stom",	"blood",	"gmt",	"alarm",	"doors",	"gmm",	"pain",	"fertmed",	"muscle",	"som",	"agecat")
+
+
+```
+
+# Export
+```{r export}
+export(excluding,here ("Data","Created","data_250.csv"))
+
+```
+
+#Diagram of exclusion process
+
+```{r , echo=FALSE}
+
+grViz("
+  digraph {
+  layout = dot
+    node [shape = rectangle,color=LIGHTBLUE,style=filled,fontsize=45,fixedsize=FALSE,width=4.0]
+    edge[color=grey,arrowhead=vee,penwidth=5,arrowsize=5]
+    A[label = '289 consenting participants']
+    
+    C[label = '262 complete survey responses']
+    
+    E[label = '252 participants adhering to study conditions']
+    
+    G[label = '251 participant with French as a main language: n=251']
+    
+    I[label = '250 participants who provided information on their sex']
+    
+    
+    node [shape = rectangle,color=GRAY,style=filled,fontsize=45,fixedsize=FALSE,width=4.0]
+    edge[color=grey,arrowhead=vee,penwidth=5,arrowsize=5]
+    B[label = '27 participants excluded for not properly completing the survey or writing nothing']
+    D[label = '11 Participants excluded for understanding study purpose']
+    F[label = '1 participant excluded for not speaking French as a main language']
+    H[label = '1 participant excluded for recording their sex as neither male or female']
+    
+    
+    node [shape = rectange,color=orange,style=filled,fontsize=45,fixedsize=FALSE,width=4.0]
+    edge[color=grey,arrowhead=vee,penwidth=5,arrowsize=4]
+    tab6 [label = 'A: Fertility vs Health: n=83'];
+    tab7 [label = 'B: Fertility vs Neutral: n=84'];
+    tab8 [label = 'C: Health vs Neutral: n=83'];
+  
+blank1[label = '', width = 0.01, height = 0.01]   
+A -> blank1[dir=none];
+blank1 -> B[minlen=10];
+  {{ rank = same; blank1 B }}
+blank1 -> C
+
+blank2[label = '', width = 0.01, height = 0.01]   
+C -> blank2[dir=none];
+blank2 -> D[minlen=10];
+  {{ rank = same; blank2 D }}
+blank2 -> E
+
+blank3[label = '', width = 0.01, height = 0.01]   
+E -> blank3[dir=none];
+blank3 -> F[minlen=10];
+  {{ rank = same; blank3 F }}
+blank3 -> G
+
+blank4[label = '', width = 0.01, height = 0.01]   
+G -> blank4[dir=none];
+blank4 -> H[minlen=10];
+  {{ rank = same; blank4 H }}
+blank4 -> I
+
+I -> tab6 [minlen=4];
+I -> tab7 [minlen=4];
+I -> tab8 [minlen=4];
+
+    
+  }
+   ")
+
+
+
+```
+
+  tab1.1 [label = '26 participants excluded for not properly completing the survey or writing nothing'];
+      tab1.2 [label = '11 participants excluded for understanding study purpose'];
+      tab1.3 [label = '1 participant excluded for not speaking French as a main language'];
+      tab1.4 [label = '1 participant excluded for not recording their sex as male or female'];
+    }
+    
+    'Excluding participants who did not complete the entire survey, \n had to rush or wrote nothing: n=263'];
+    tab3 [label = 'Excluding participants who knew it was a memory test \n or about contraception (e.g. from observing other participants) : n=252'];
+    tab4 [label = 'Excluding participant who did not speak French as a first language: n=251'];
+    tab5 [label = 'Excluding participant whose sex was neither male nor female: n=250'];
+```
+
+
+``` {r flow diagram}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Create the chart with the 'additional block' flowing from the first block to the right
+chart <- grViz("
+  digraph flowchart {
+    graph [overlap = true, fontsize = 24, rankdir = LR];  # Adjusted rankdir to LR (left-to-right layout)
+    
+    # Main blocks
+    node [fontname = Arial, shape = rectangle, style = filled, fillcolor = grey, fontcolor = black];
+    tab1 [label = 'Study completed by consenting participants: n=289'];
+    tab2 [label = 'Excluding participants who did not complete the entire survey, \n had to rush or wrote nothing: n=263'];
+    tab3 [label = 'Excluding participants who knew it was a memory test \n or about contraception (e.g. from observing other participants) : n=252'];
+    tab4 [label = 'Excluding participant who did not speak French as a first language: n=251'];
+    tab5 [label = 'Excluding participant whose sex was neither male nor female: n=250'];
+
+    # Additional block
+    node [shape = rectangle, fillcolor = white, fontcolor = black];
+    newblock [label = 'Additional Block'];
+  
+    # Main block connections
+    tab1 -> tab2 -> tab3 -> tab4 -> tab5
+  
+    # Connection from tab1 to newblock
+    rank=same tab1 -> newblock;
+  }
+")
+
+chart <- grViz("
+  digraph flowchart {
+    graph [overlap = true, fontsize = 24];
+    
+    node [fontname = Arial, shape = rectangle, style = filled, fillcolor = grey, fontcolor = black];
+    tab1 [label = 'Study completed by consenting participants: n=289'];
+    tab2 [label = 'Excluding participants who did not complete the entire survey, \n had to rush or wrote nothing: n=263'];
+    tab3 [label = 'Excluding participants who knew it was a memory test \n or about contraception (e.g. from observing other participants) : n=252'];
+    tab4 [label = 'Excluding participant who did not speak French as a first language: n=251'];
+    tab5 [label = 'Excluding participant whose sex was neither male nor female: n=250'];
+    
+    node [shape = rectangle, fillcolor = white, fontcolor = black];
+    tab6 [label = 'Treatment 1: Fertility vs Health: n=83'];
+    tab7 [label = 'Treatment 2: Fertility vs Neutral: n=85'];
+    tab8 [label = 'Treatment 3: Health vs Neutral: n=83'];
+    
+      # Additional block
+    node [shape = rectangle, fillcolor = white, fontcolor = black];
+    newblock [label = 'Additional Block'];
+  
+  
+    tab1 -> tab2 -> tab3 -> tab4 ->tab5;
+    tab5 -> tab6;
+    tab5 -> tab7;
+    tab5 -> tab8;
+    
+       # Connection from tab1 to newblock
+    tab1 -> newblock [ltail = mainblocks, lhead = newblock];
+  
+  }
+")
+
+chart <- grViz("
+  digraph flowchart {
+    graph [overlap = true, fontsize = 24, rankdir = TB];  # Adjusted rankdir to TB (top-to-bottom layout)
+    
+    # Main blocks
+    node [fontname = Arial, shape = rectangle, style = filled, fillcolor = grey, fontcolor = black];
+    subgraph mainblocks {
+      tab1 [label = 'Study completed by consenting participants: n=289'];
+      tab2 [label = 'Excluding participants who did not complete the entire survey, \n had to rush or wrote nothing: n=263'];
+      tab3 [label = 'Excluding participants who knew it was a memory test \n or about contraception (e.g. from observing other participants) : n=252'];
+      tab4 [label = 'Excluding participant who did not speak French as a first language: n=251'];
+      tab5 [label = 'Excluding participant whose sex was neither male nor female: n=250'];
+    }
+    
+    # Side bubbles
+    node [shape = rectangle, fillcolor = white, fontcolor = black];
+    subgraph sidebubbles {
+      tab1.1 [label = '26 participants excluded for not properly completing the survey or writing nothing'];
+      tab1.2 [label = '11 participants excluded for understanding study purpose'];
+      tab1.3 [label = '1 participant excluded for not speaking French as a main language'];
+      tab1.4 [label = '1 participant excluded for not recording their sex as male or female'];
+    }
+  
+    # Main block connections
+    tab1 -> tab2 -> tab3 -> tab4 -> tab5;
+    
+    # Side bubble connections
+    tab1 -> tab1.1 [lhead = sidebubbles];
+    tab2 -> tab1.2 [lhead = sidebubbles];
+    tab3 -> tab1.3 [lhead = sidebubbles];
+    tab4 -> tab1.4 [lhead = sidebubbles];
+  }
+")
+# Display chart on the console
+print(chart)
+
+# Save as PDF
+webshot(grVizOutput(chart), file = "Figure2.pdf", cliprect = "viewport", vwidth = 1000, vheight = 800)
+
+# Save as PNG
+webshot(grVizOutput(chart), file = "Figure2.png", cliprect = "viewport", vwidth = 1000, vheight = 800)
+```

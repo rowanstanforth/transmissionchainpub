@@ -1,0 +1,147 @@
+---
+title: "2_scorescombined"
+output: html_document
+date: "2023-06-09"
+---
+
+This script combines scores from Luna + Mattéo + Gabby. Luna is the only one not blind to the experiment.
+
+# Set up
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pack}
+r <- getOption("repos")
+r["CRAN"] <- "https://cran.biotools.fr/"
+options(repos = r)
+install.packages("pacman")
+library("pacman")
+p_load(dplyr)
+p_load(rio)
+p_load(here)
+p_load(readxl)
+p_load(irr)
+p_load(irrplot)
+```
+
+```{r load}
+finalscores <- import(here ("Data","Source","finalscores.csv"))
+gabyscores <- import(here ("Data","Source","gabyscores.csv"))
+```
+
+# Matching scores
+
+For those IDs for which Scorer 1 and Scorer 2 disagree, score from Scorer 3 is taken (as it is the most common of the 3)
+```{r load2}
+# Define the column names in gabyscores that should be matched
+columns_to_match <- c("gmc", "c", "cf", "stom", "blood", "gmt", "alarm", "doors", "gmm", "pain", "fm", "m", "som")
+
+# Update scores in finalscores by matching columns based on the column names
+updated_finalscores <- finalscores %>%
+  mutate(across(all_of(columns_to_match), ~ ifelse(!is.na(gabyscores[[cur_column()]]) & gabyscores[[cur_column()]] != "", gabyscores[[cur_column()]], .)))
+
+# Output the updated_finalscores data frame
+updated_finalscores$cf
+export(updated_finalscores, here ("Data","Created","updated_finalscores.csv"))
+write.csv(updated_finalscores, file = "updated_finalscores.csv", row.names = FALSE)
+
+# check number of rows
+dim(updated_finalscores)
+```
+
+
+# Join scores
+```{r join}
+modified <- import(here ("data","created","modified_table.csv")) # 363 lines
+finalresults <- import(here ("data","created","updated_finalscores.csv")) # 259
+
+finalresults<- finalresults%>%
+  select(c("id", "gmc", "c", "cf", "stom", "blood", "gmt", "alarm", "doors", "gmm", "pain", "fm", "m", "som"))
+
+
+finalresults <- finalresults %>% rename(sessionid = id)
+finalresults <- finalresults %>% rename(con = c)
+finalresults <- finalresults %>% rename(fertcont = cf)
+finalresults <- finalresults %>% rename(fertmed =fm)
+finalresults <- finalresults %>% rename(muscle = m)
+
+# Left join modified with finalresults based on sessionid
+joined_data <- left_join(modified, finalresults, by = "sessionid")
+#check for missing values still
+chck<-joined_data %>% select(sessionid, id, fertcont)
+
+# Replace values with NA based on treatment condition (this is because scorers did not not the treatment when scoring and for some of those it does not apply)
+# for example, a treatment 1 will get a score of NA for blood, rather than 0.
+
+joined_data$stom <- ifelse(joined_data$treatment2 == 2, NA, joined_data$stom)
+joined_data$muscle <- ifelse(joined_data$treatment2 == 2, NA, joined_data$muscle)
+joined_data$fertcont <- ifelse(joined_data$treatment2 == 3, NA, joined_data$fertcont)
+joined_data$fertmed <- ifelse(joined_data$treatment2 == 3, NA, joined_data$fertmed)
+joined_data$som <- ifelse(joined_data$treatment2 == 1, NA, joined_data$som)
+joined_data$blood <- ifelse(joined_data$treatment2 == 1, NA, joined_data$blood)
+```
+
+# Export
+```{r export}
+export(joined_data, here ("data","created","scored_data.csv" ))
+
+```
+
+# Measure the agreement between the two main scorers
+
+``` {r import}
+sheet1 <- import(here ("Data","Source","lunashortscores.csv"))
+sheet2 <- import(here ("Data","Source","matteoshortscores.csv"))
+```
+
+```{r extract and reshape}
+# Extract the desired columns from both sheets
+columns_to_extract <- c("sessionid", "cf", "stom", "blood", "fm", "m", "som")
+
+extracted_sheet1 <- sheet1[, c(1, 5:7, 18:20)]  # Extract columns 5-7 and 18-20
+colnames(extracted_sheet1) <- columns_to_extract  # Rename columns
+
+extracted_sheet2 <- sheet2[, c(1, 5:7, 18:20)]  # Extract columns 5-7 and 18-20
+colnames(extracted_sheet2) <- columns_to_extract  # Rename columns
+
+columns_to_reshape <- c("cf", "stom", "blood", "fm", "m", "som")
+
+# Reshape the data from wide to long format
+sheet1long <- extracted_sheet1 %>%
+  select(sessionid, all_of(columns_to_reshape)) %>%
+  pivot_longer(cols = -sessionid, names_to = "variable", values_to = "score") %>%
+  arrange(sessionid, variable)
+
+sheet2long <- extracted_sheet2 %>%
+  select(sessionid, all_of(columns_to_reshape)) %>%
+  pivot_longer(cols = -sessionid, names_to = "variable", values_to = "score") %>%
+  arrange(sessionid, variable)
+
+
+# Combine the two sheets into a single data frame
+combined_data <- data.frame(sheet1 = sheet1long, sheet2long)
+
+head(combined_data)
+```
+## Kappa value
+At the moment the agreement is tested on all 6 categories used for the analysis. This means that there are 0 scores for 2 text-elements that werent present, depending on the treatment. I've left this in though as the scorers were in fact blind to the treatment.
+
+``` {r measure concordance}
+# Calculate the concordance (kappa coefficient) between the two sheets
+result <- kappa2(combined_data[, c("sheet1.score", "score")])
+
+#produce a contingency table that shows frequency of agreement / disagreement
+
+contingency_table <- table(combined_data$score, combined_data$sheet1.score)
+contingency_table
+
+kappa_result <- kappa2(contingency_table)
+
+# Print the kappa coefficient
+print(result$value)
+
+
+```
+
+

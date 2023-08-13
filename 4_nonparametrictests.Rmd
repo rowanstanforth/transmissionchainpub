@@ -1,0 +1,401 @@
+---
+title: "4. non-para tests"
+output: html_document
+date: "2023-06-09"
+---
+# Set-up
+## Load packages
+
+```{r pack}
+install.packages("pacman")
+install.packages("rlang")
+library(pacman)
+p_load(ggplot2)
+p_load(tidyverse)
+p_load(rio)
+p_load(here)
+p_load(gridExtra)
+p_load(dplyr)
+p_load(ggsignif)
+p_load(summarytools)
+p_load(gridExtra)
+p_load(magrittr)
+p_load(gtsummary)
+```
+
+## load data
+
+```{r load_data}
+wide_data<-import(here ("data","created","data_250.csv"))
+# 1 row per individual, this data is the data obtained after exclusion in he flowchart
+#examine data
+print(ncol(wide_data))
+```
+
+## exclude unnecessary columns
+```{r column exclude}
+columns_to_exclude <- c(
+  "Fulltreatment", "date", "gender", "education_level", "textoutput", "typecontranow", "subjectbroad",
+  "typecontrapast", "sexuality", "sexualityother", "child", "order", "first_contranow",
+  "second_contranow", "first_contrapast", "second_contrapast", "third_contrapast",
+  "fourth_contrapast", "first_contrapart", "second_contrapart", "test", "typecontrapartner", "sideffects", "partner_sex"
+)
+
+# Exclude the specified columns
+wide_data<- wide_data[, !(names(wide_data) %in% columns_to_exclude)]
+
+# Print the filtered data frame
+print(ncol(wide_data))
+print(names(wide_data))
+```
+## examine data
+```{r examine}
+view(dfSummary(wide_data))
+names(wide_data)
+str(wide_data)
+
+```
+# Plots
+## Plot overall
+``` {r ploto}
+#select desired columns
+fd<-wide_data %>% select(id, Sessionid,treatment, fertcont, stom, blood, fertmed, muscle, som) 
+
+# Calculate the percentages for plots for each treatment subset
+
+graph1 <- subset(fd, treatment == 1)
+percentages1 <- colMeans(graph1[, c("fertcont", "stom")], na.rm = TRUE) * 100
+
+graph22 <- subset(fd, treatment == 2)
+percentages2 <- colMeans(graph22[, c("fertcont", "blood")], na.rm = TRUE) * 100
+
+graph33 <- subset(fd, treatment == 3)
+percentages3 <- colMeans(graph33[, c("stom", "blood")], na.rm = TRUE) * 100
+
+# overall plot showing all percentages.
+
+Treatment <- c("A","A", "B","B", "C", "C")
+Sideeffect <- c("Fertility" , "HealthMod", "Fertility", "HealthMild", "HealthMod" , "HealthMild")
+value <- c(percentages1, percentages2, percentages3)
+data <- data.frame(Treatment,Sideeffect,value)
+data
+# Grouped
+
+plotpp <- ggplot(data, aes(fill = Sideeffect, y = value, x = Treatment)) +
+  geom_bar(position = "dodge", stat = "identity", width = 0.7) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.line.x = element_line(color = "black"),
+        axis.line.y = element_line(color = "black"),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  ylab("Percentage prevalence (%)") +
+  scale_fill_manual(values = c("#4393C3", "#D1E5F0", "#F4A582")) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 45)) +
+  
+  ggtitle("Contraceptive side-effect transmission")
+
+plotpp
+plot1<-plotpp +
+  geom_signif(
+    stat = "identity",
+    data = data.frame(
+      x = c(0.876, 1.94, 2.95),
+      xend = c(1.076, 2.14, 3.15),
+      y = c(42, 41, 31),
+      annotation = c("***", "***", "NS"),
+      fill = c("Fertility", "HealthMod", "HealthMild")
+    ),
+    aes(x = x, xend = xend, y = y, yend = y, annotation = annotation, fill = fill)
+  )
+plot1
+
+```
+
+## Treatment A plot
+
+```{r plota}
+
+graph1 <- subset(fd, treatment == 1)
+g1percentages <- colMeans(graph1[, c("fertcont", "stom", "fertmed", "muscle")], na.rm = TRUE) * 100
+
+Context <- c(rep("Contraception" , 2) , rep("Medical" , 2))
+Rumour <- rep(c("Fertility" , "HealthMod") , 2)
+value <- g1percentages
+data <- data.frame(Context,Rumour,value)
+
+# Grouped
+library(ggsignif)
+plot1 <- ggplot(data, aes(fill = Rumour, y = value, x = Context)) +
+  geom_bar(position = "dodge", stat = "identity", width = 0.7) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.line.x = element_line(color = "black"),
+        axis.line.y = element_line(color = "black"),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  ylab("Percentage prevalence (%)") +
+  scale_fill_manual(values = c("#4393C3", "#D1E5F0")) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 45)) +
+  
+  ggtitle("Treatment A - Fertility vs HealthMod")
+
+plot1<-plot1 +
+  geom_signif(
+    stat = "identity",
+    data = data.frame(
+      x = c(0.876, 1.94),
+      xend = c(1.076, 2.14),
+      y = c(42, 28),
+      annotation = c("***", "***"),
+      fill = c("Fertility", "HealthMod")
+    ),
+    aes(x = x, xend = xend, y = y, yend = y, annotation = annotation, fill = fill)
+  )
+plot1
+
+```
+## Treatment B plot
+```{r plotb}
+
+graph2 <- subset(fd, treatment == 2)
+g2percentages <- colMeans(graph2[, c("fertcont", "blood", "fertmed", "som")], na.rm = TRUE) * 100
+
+Context <- c(rep("Contraception" , 2) , rep("Medical" , 2))
+Rumour <- rep(c("Fertility" , "HealthMild") , 2)
+value <- g2percentages
+data <- data.frame(Context,Rumour,value)
+
+# Grouped
+plot2 <- ggplot(data, aes(fill = Rumour, y = value, x = Context)) +
+  geom_bar(position = "dodge", stat = "identity", width = 0.7) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.line.x = element_line(color = "black"),
+        axis.line.y = element_line(color = "black"),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  ylab("Percentage prevalence (%)") +
+  scale_fill_manual(values = c("#4393C3", "#F4A582"))+
+  #remove gap between bars and x axis
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 45))+
+  
+  ggtitle("Treatment B - Fertility vs HealthMild")
+
+
+plot2<-plot2 +
+  geom_signif(
+    stat = "identity",
+    data = data.frame(
+      x = c(0.876, 1.94),
+      xend = c(1.076, 2.14),
+      y = c(41, 36),
+      annotation = c("***", "**"),
+      fill = c("Fertility", "HealthMild")
+    ),
+    aes(x = x, xend = xend, y = y, yend = y, annotation = annotation, fill = fill)
+  )
+plot2
+```
+## Treatment C plot
+``` {r plotc}
+
+graph3 <- subset(fd, treatment == 3)
+g3percentages <- colMeans(graph3[, c("stom", "blood", "muscle", "som")], na.rm = TRUE) * 100
+
+Context <- c(rep("Contraception" , 2) , rep("Medical" , 2))
+Rumour <- rep(c("HealthMod" , "HealthMild") , 2)
+value <- g3percentages
+data <- data.frame(Context,Rumour,value)
+
+# Grouped
+plot3 <- ggplot(data, aes(fill = Rumour, y = value, x = Context)) +
+  geom_bar(position = "dodge", stat = "identity", width = 0.7) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.line.x = element_line(color = "black"),
+        axis.line.y = element_line(color = "black"),
+        axis.title.y = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.text = element_text(size = 14),
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  ylab("Percentage prevalence (%)") +
+  #scale_fill_brewer(palette = "Set2") +
+  scale_fill_manual(values = c("#D1E5F0", "#F4A582"))+
+  #remove gap between bars and x axis
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 45))+
+  ggtitle("Treatment C - HealthMod vs HealthMild")
+
+plot3<-plot3 +
+  geom_signif(
+    stat = "identity",
+    data = data.frame(
+      x = c(0.876, 1.94),
+      xend = c(1.076, 2.14),
+      y = c(30, 16),
+      annotation = c("NS", "**"),
+      fill = c("HealthMod", "HealthMild")
+    ),
+    aes(x = x, xend = xend, y = y, yend = y, annotation = annotation, fill = fill)
+  )
+plot3
+```
+
+## Combine the plots
+```{r plotcc}
+grid.arrange(plot1, plot2, plot3, nrow = 1 )
+
+```
+# McNemar tests
+```{r mcnemar, include=FALSE}
+
+####### pivoting the data into long format
+
+df <- 
+  fd %>% 
+  select(Sessionid, treatment, fertcont, stom, blood, fertmed, muscle, som) %>%
+  group_by(Sessionid) %>%
+  mutate(id = Sessionid) %>%
+  group_by(id) %>%
+  filter(n() == 2) %>%
+  ungroup()
+
+```
+##Contraception context
+
+``` {r mcnemarcc}
+################### contraception
+####### fertility vs health \* SIGNIFICANT
+
+cfh<- subset(fd, treatment == 1)
+nrow(cfh)
+contingency_table<-table(cfh$fertcont, cfh$stom)
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+####### fertility vs neutral  \* SIGNIFICANT
+
+df2<- subset(fd, treatment == 2) 
+print(nrow(df2))
+df2$stom
+
+contingency_table<-table(df2$fertcont, df2$blood) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+####### health vs neutral \* NOT SIG
+
+df3<- subset(fd, treatment == 3) 
+contingency_table<-table(df3$stom, df3$blood) 
+contingency_table
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+```
+##Medical context
+```{r mcnemarmc}
+
+####### fertility vs health \* SIGNIFICANT
+
+df1<- subset(fd, treatment == 1) 
+contingency_table<-table(df1$fertmed, df1$muscle) 
+contingency_table
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+####### fertility vs neutral \* SIGNIFICANT
+
+df2<- subset(fd, treatment == 2) 
+contingency_table<-table(df2$fertmed, df2$som)
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table)
+print(mcnemar_result)
+
+####### health vs neutral \* SIGNIFICANT
+
+df3<- subset(fd, treatment == 3) 
+contingency_table<-table(df3$muscle, df3$som) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+```
+#Comparing contexts
+
+```{r mcnemarcontext}
+
+####### fertility vs fertility \* SIGNIFICANT  # check for each treatment
+
+df7<- subset(fd, treatment == 1) 
+contingency_table <-table(df7$fertcon, df7$fertmed) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+df7<- subset(fd, treatment == 2) 
+contingency_table <-table(df7$fertcon, df7$fertmed) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+
+####### health vs health \* SIGNIFICANT
+
+df8<- subset(fd, treatment == 1) 
+contingency_table<-table(df8$stom, df8$muscle) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+df8<- subset(fd, treatment == 3) 
+contingency_table<-table(df8$stom, df8$muscle) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+####### neutral vs neutral \* SLIGHTLY SIGNIFICANT
+
+df9<- subset(fd, treatment == 2) 
+contingency_table<-table(df9$blood, df9$som) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+
+df9<- subset(fd, treatment == 3) 
+contingency_table<-table(df9$blood, df9$som) 
+contingency_table 
+mcnemar_result<-mcnemar.test(contingency_table) 
+print(mcnemar_result)
+```
+
+##Multiple comparison adjustment
+``` {r adjust}
+
+#list all p values and then adjust them for multiple comparison
+
+pvalues <- c(.0003182, 2.679e-05, .3074, .0008492, .002967, .007661, .01391, .5839, .02445, .02474, .5791, .001319)
+
+p.adjust(pvalues,method="bonferroni")
+
+```
+

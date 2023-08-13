@@ -1,0 +1,735 @@
+---
+title: "5_logistic regreesion"
+output: html_document
+date: "2023-07-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Load packages
+These packages werent working with p_load so have used the traditional way.
+
+```{r pack, include=FALSE}
+r <- getOption("repos")
+r["CRAN"] <- "https://cran.biotools.fr/"
+options(repos = r)
+install.packages("pacman")
+library("pacman")
+library(pacman)
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("rio")
+library(rio)
+install.packages("rlang")
+library(rlang)
+install.packages("here")
+library(here)
+install.packages("summarytools")
+library(summarytools)
+install.packages("dplyr")
+library(dplyr)
+install.packages("gtsummary")
+library(gtsummary)
+install.packages("car")
+library(car)
+install.packages("lme4")
+library(lme4)
+install.packages("ggplot2")
+library(ggplot2)
+install.packages("gt")
+library(gt)
+install.packages("glmmTMB")
+library(glmmTMB)
+install.packages(blme)
+library(blme)
+install.packages(sjPlot)
+library(sjPlot)
+install.packages("effects")
+library(effects)
+install.packages("DHARMa")
+library(DHARMa)
+```
+
+#### Reset repro (if needed)
+If the packages stop working then resetting the repository might help.
+
+```{r repro}
+options(repos = getOption("repos")["CRAN"])
+```
+
+## Load data
+load data that has both the scores and metadata
+```{r load_data, include=FALSE}
+wide_data<-import(here ("Data","Created","data_250.csv"))
+print(ncol(wide_data))
+head(wide_data)
+```
+# Examine
+```{r exam1}
+view(dfSummary(wide_data))
+```
+
+## Exclude unnecessary columns
+```{r streamline}
+
+columns_to_exclude <- c(
+  "Fulltreatment", "date", "gender", "education_level", "textoutput", "typecontranow", "subjectbroad",
+  "typecontrapast", "sexuality", "sexualityother", "child", "order", "first_contranow",
+  "second_contranow", "first_contrapast", "second_contrapast", "third_contrapast",
+  "fourth_contrapast", "first_contrapart", "second_contrapart", "test", "typecontrapartner", "sideffects", "partner_sex"
+)
+
+# Exclude the specified columns
+wide_data<- wide_data[, !(names(wide_data) %in% columns_to_exclude)]
+
+# Print the filtered data frame
+print(ncol(wide_data))
+print(names(wide_data))
+```
+
+## Change format
+What previously was neutral is now HealthMild and Health is HealthModerate
+
+```{r def}
+# Define the selected columns including text elements and meta data
+selected_columns <- c("Sessionid", "fertcont", "stom", "blood", "fertmed", "muscle","som", "alarm", "doors")
+
+# Define a function to assign the context based on the text element
+assign_context <- function(text_element) {
+  Context <- case_when(
+    text_element %in% c("fertcont", "stom", "blood") ~ "Contraception",
+    text_element %in% c("alarm", "doors") ~ "tech",
+    text_element %in% c("fertmed", "muscle", "som") ~ "Medical",
+    TRUE ~ NA_character_
+  )
+  return(Context)
+}
+
+## convert data from wide to long format and add the context column
+
+long_data <- wide_data %>%
+  select(all_of(selected_columns)) %>%
+  pivot_longer(cols = -Sessionid,
+               names_to = "text_element",
+               values_to = "score") %>%
+  mutate(Context = assign_context(text_element))
+
+# Perform a left join with the original wide-format data
+fld <- left_join(long_data, wide_data, by = "Sessionid")
+
+```
+
+## Run this code to treat the health side effects as two separate categories, moderate and mild. 
+```{r normal analysis option}
+
+# Create the Side_effect column based on text_element values
+fld$"Side_effect" <- ifelse(fld$text_element %in% c("fertcont", "fertmed"), "Fertility", ifelse(fld$text_element %in% c("muscle", "stom"), "HealthModerate",  ifelse(fld$text_element %in% c("som", "blood"), "HealthMild", NA)))
+```
+
+## OPTIONAL  - Run this code instead of chunk above to run combine the two health side effects together, this gives worse AIC values for the main models. 
+``` {r OPTIONAL change analysis}
+
+### try grouping all health together
+# Create the Side_effect column based on text_element values
+fld$"Side_effect" <- ifelse(fld$text_element %in% c("fertcont", "fertmed"), "Fertility", ifelse(fld$text_element %in% c("muscle", "stom", "som", "blood"), "Health", NA))
+```
+
+``` {r work}
+#remove the rows that didn't have a score, because the treatment didn't include that text element and filter out the technology context
+
+fld<-fld %>%
+  filter(score!="NA")%>%
+  filter(Context!="tech")
+
+#rename all data
+alldata<-fld
+```
+# Examine
+```{r exam}
+view(dfSummary(alldata))
+```
+
+# Relevel and set factors
+## Run this chuck for treating health side-effects separately
+```{r releve}
+alldata$Side_effect <- as.factor(alldata$Side_effect)
+alldata$Side_effect<- relevel(alldata$Side_effect, ref = "HealthMild")
+```
+
+## Run this chunk instead of the one above to group the health side-effects together
+``` {r relevle}
+
+alldata$Side_effect <- as.factor(alldata$Side_effect)
+alldata$Side_effect<- relevel(alldata$Side_effect, ref = "Health")
+```
+
+```{r full relevel}
+
+alldata$treatment<- factor(alldata$treatment)
+alldata$treatment<- relevel(alldata$treatment, ref = "3")
+
+alldata$Context<- factor(alldata$Context)
+alldata$Context<- relevel(alldata$Context, ref = "Medical")
+
+alldata$Sex <- factor(alldata$Sex)
+alldata$Sex<- relevel(alldata$Sex, ref = "Female")
+
+alldata$Student <- factor(alldata$Student)
+alldata$Student<- relevel(alldata$Student, ref = "No")
+
+alldata$university <- factor(alldata$university)
+alldata$university <- relevel(alldata$university, ref = "Université de Montpellier")
+
+alldata$Sessionid <- factor(alldata$Sessionid)
+
+alldata$parent_degree<-factor(alldata$parent_degree)
+alldata$parent_degree<- relevel(alldata$parent_degree, ref = "Aucun")
+
+alldata$contrausenow<-factor(alldata$contrausenow)
+
+alldata$plannedcontrachange<- factor(alldata$plannedcontrachange)
+
+alldata$partnercontrause<-factor(alldata$partnercontrause)
+alldata$partnercontrause<- relevel(alldata$partnercontrause, ref = "Non")
+
+alldata$stopcozside<-factor(alldata$stopcozside)
+alldata$stopcozside<-relevel(alldata$stopcozside, ref = "Non")
+
+alldata$sevside<-factor(alldata$sevside)
+alldata$sevside<-relevel(alldata$sevside, ref = "Léger")
+
+alldata$location<-factor(alldata$location)
+
+alldata$contranowsimple<-factor(alldata$contranowsimple)
+alldata$contranowsimple<-relevel(alldata$contranowsimple, ref = "condom")
+
+alldata$contrapastsimple<-factor(alldata$contrapastsimple)
+alldata$contrapastsimple<-relevel(alldata$contrapastsimple, ref = "condom")
+
+alldata$contrapartsimple<-factor(alldata$contrapartsimple)
+alldata$contrapartsimple<-relevel(alldata$contrapartsimple, ref = "condom")
+
+alldata$contra_overall<-factor(alldata$contra_overall)
+alldata$contra_overall<-relevel(alldata$contra_overall, ref = "condom")
+
+alldata$plannedcontrachange<-factor(alldata$plannedcontrachange)
+alldata$plannedcontrachange<-relevel(alldata$plannedcontrachange, ref = "Non")
+
+alldata$sexualitysimple<-factor(alldata$sexualitysimple)
+
+alldata$kidsimple<-factor(alldata$kidsimple)
+alldata$kidsimple<-relevel(alldata$kidsimple, ref = "no")
+
+alldata$sideffectssim<-factor(alldata$sideffectssim)
+
+alldata$partnersexsimple<-factor(alldata$partnersexsimple)
+
+alldata$usecontraever<-factor(alldata$usecontraever)
+
+alldata$Subject<-factor(alldata$Subject)
+alldata$Subject<- relevel(alldata$Subject, ref = "Other")
+
+alldata$education_simple<-factor(alldata$education_simple)
+
+```
+
+## Distribution of variables - main data
+
+```{r summary}
+library(dplyr)
+
+#need to rename one variable for it to appear
+
+wide_data$sideffectssim <- ifelse(wide_data$sideffectssim == 'no', 'Non', 'Oui')
+
+#choose the variables you want in the table, then rename them in word.
+
+maintable <- wide_data[, c("treatment", "agecat", "Subject", "Sex", "partnersexsimple", "contra_overall", "sideffectssim")]
+
+tbl_summary(maintable, by = treatment) %>% 
+  add_p() %>%
+  add_overall %>%
+ add_stat_label() #%>%
+gt::tab_options(table.font.names = "Times New Roman")
+```
+
+## Distribution of main variables - for annex that includes all variables
+
+```{r distrib for annex}
+## Distribution of variables - main data
+
+library(dplyr)
+#choose the variables you want in the table, then rename them in word.
+
+#need to rename variables to appear in table
+
+wide_data$usecontraever <- ifelse(wide_data$usecontraever == 'no', 'Non', 'Oui')
+
+wide_data$Student <- ifelse(wide_data$Student == 'No', 'Non', 'Oui')
+
+wide_data$sideffectssim <- ifelse(wide_data$sideffectssim == 'no', 'Non', 'Oui')
+
+
+annextable <- wide_data[, c("treatment", "agecat", "Subject", "Sex", "partnersexsimple", "contra_overall", "sideffectssim", "Student", "university", "parent_degree", "contrausenow", "contrausepast", "plannedcontrachange", "partnercontrause", "stopcozside", "sevside", "location", "age", "contranowsimple", "contrapastsimple", "contrapartsimple", "contra_overall", "sexualitysimple", "kidsimple", "usecontraever", "education_simple")]
+
+tbl_summary(annextable, by = treatment) %>% 
+  add_p() %>%
+  add_overall %>%
+ add_stat_label() #%>%
+gt::tab_options(table.font.names = "Times New Roman")
+
+```
+
+# Univariate analysis
+```{r univar anal}
+#0. treatment
+model0 <- glmer(score ~ treatment + (1 | Sessionid), data = alldata, family = binomial)
+
+#1. Side_effect
+model1 <- glmer(score ~ `Side_effect` + (1 | Sessionid), data = alldata, family = binomial)
+
+#2. Context
+model2 <- glmer(score ~ Context + (1 | Sessionid), data = alldata, family = binomial)
+
+#3. log Age - signif
+model3 <- glmer(score ~ log(age) +(1 | Sessionid), data = alldata, family = binomial)
+
+#4. age cat - non sig
+model4 <- glmer(score ~  agecat + (1 | Sessionid), data = alldata, family = binomial)
+
+#5. sex - using data excluding other - slightly sig - MAIN
+model5 <- glmer(score ~ Sex + (1 | Sessionid), data = alldata, family = binomial)
+
+#6. student status - sig
+model6 <- glmer(score ~  Student + (1 | Sessionid), data = alldata, family = binomial)
+
+#7. university
+model7 <- glmer(score ~  university + (1 | Sessionid), data = alldata, family = binomial)
+
+#8 Subject (broad terms)
+model8 <- glmer(score ~ Subject + (1 | Sessionid), data = alldata, family = binomial)
+
+#9. location - sig -MAIN
+model9 <- glmer(score ~  location + (1 | Sessionid), data = alldata, family = binomial)
+
+#10. parent degree - not sig
+model10 <- glmer(score ~  parent_degree+ (1 | Sessionid), data = alldata, family = binomial)
+
+#11. education level
+model11 <- glmer(score ~ education_simple + (1 | Sessionid), data = alldata, family = binomial)
+
+#12. use contra now - not sig
+model12 <- glmer(score ~  contrausenow+ (1 | Sessionid), data = alldata, family = binomial)
+
+#13. use contra past - not sig, but below 0.2 - ANNEX
+model13 <- glmer(score ~  contrausepast+ (1 | Sessionid), data = alldata, family = binomial)
+
+#14. Partner contra use
+model14 <- glmer(score ~  partnercontrause + (1 | Sessionid), data = alldata, family = binomial)
+
+#15. simple contra type used now
+model15 <- glmer(score ~  contranowsimple + (1 | Sessionid), data = alldata, family = binomial)
+
+#16. type contra used past
+model16 <- glmer(score ~  contrapastsimple + (1 | Sessionid), data = alldata, family = binomial)
+
+#17. type contra used partner
+model17 <- glmer(score ~  contrapartsimple + (1 | Sessionid), data = alldata, family = binomial)
+
+#18. Type contra used overall (present or past)
+model18 <- glmer(score ~  contra_overall + (1 | Sessionid), data = alldata, family = binomial)
+
+#19. use contra ever (used contra present or past)
+model19 <- glmer(score ~ usecontraever   + (1 | Sessionid), data = alldata, family = binomial)
+
+#20. use contra past - not sig, but below 0.2 - ANNEX
+### SUBSET??
+model20 <- glmer(score ~  plannedcontrachange + (1 | Sessionid), data = alldata, family = binomial)
+
+#21. simple side effects - not sig - ANNEX
+### SUBSET?
+model21 <- glmer(score ~ sideffectssim + (1 | Sessionid), data = alldata, family = binomial)
+
+#22 stop because side
+model22 <- glmer(score ~ stopcozside + (1 | Sessionid), data = alldata, family = binomial)
+
+#23 severity side
+model23 <- glmer(score ~ sevside + (1 | Sessionid), data = alldata, family = binomial)
+
+#24. kids simple (want, don't want, have) - not sig - ANNEX
+model24 <- glmer(score ~ kidsimple + (1 | Sessionid), data = alldata, family = binomial)
+
+#25. partner sex simple (woman / other)
+model25 <- glmer(score ~ partnersexsimple + (1 | Sessionid), data = alldata, family = binomial)
+
+#26. sexuality simple (hetero / non-hetero)
+model26 <- glmer(score ~ sexualitysimple + (1 | Sessionid), data = alldata, family = binomial)
+
+```
+# Univariate model summaries 
+
+``` {r m1}
+#1. Side_effect
+summary(model1)
+```
+
+```{r m2}
+#2. Context
+summary(model2)
+```
+
+```{r m3}
+#3. log Age - signif
+summary(model3)
+```
+
+```{r m4}
+#4. age cat - non sig
+summary(model4)
+```
+
+```{r m5}
+#5. sex - using data excluding other - slightly sig - MAIN
+summary(model5)
+```
+
+```{r m6}
+#6. gender
+summary(model6)
+```
+
+```{r m7}
+#7. student status - sig
+summary(model7)
+```
+
+```{r m8}
+#8. university
+summary(model8)
+```
+
+```{r m9}
+#9 Subject (broad terms)
+summary(model9) 
+```
+
+``` {r m10}
+#10. location - sig -MAIN
+summary(model10)
+```
+
+``` {r m11}
+#11. parent degree - not sig
+summary(model11)
+```
+
+```{r m12}
+#12. education level
+summary(model12)
+```
+
+``` {r m13}
+#13. use contra now - not sig
+summary(model13) 
+```
+
+``` {r m14}
+#14. use contra past - not sig, but below 0.2 - ANNEX
+summary(model14)
+```
+
+```{r m15}
+#15. Partner contra use
+summary(model15)
+```
+
+```{r m16}
+#16. simple contra type used now
+summary(model16) 
+```
+
+``` {r m17}
+#17. type contra used past
+summary(model17) 
+```
+
+``` {r m18}
+#18. type contra used partner
+summary(model18) 
+```
+
+```{r m19}
+#19. Type contra used overall (present or past)
+summary(model19)
+```
+
+``` {r m20}
+#20. use contra ever (used contra present or past)
+summary(model20)
+```
+
+```{r m21}
+#21. use contra past - not sig - ANNEX
+### SUBSET??
+summary(model21)
+```
+
+``` {r m22}
+#22. simple side effects - not sig - ANNEX
+### SUBSET?
+summary(model22)
+```
+
+``` {r m23}
+#23 stop because side
+summary(model23)
+```
+
+``` {r m24}
+#24 severity side
+summary(model24)
+```
+
+``` {r m25}
+#25. kids simple (want, don't want, have) - not sig - ANNEX
+summary(model25) <- glmer(score ~ kidsimple + (1 | Sessionid), data = alldata, family = binomial)
+```
+
+``` {r m26}
+#26. partner sex simple (woman / other)
+summary(model26)
+```
+
+```{r m27}
+#27. sexuality simple (hetero / non-hetero)
+summary(model27)
+```
+
+# Univariate analysis table
+guide from this website: https://cran.r-project.org/web/packages/gtsummary/vignettes/tbl_regression.html 
+``` {r univar table}
+
+#femaleonly <- alldata[alldata$Sex == "Female", ]
+
+alldata %>%
+  
+   select(treatment, Sessionid, score, Side_effect, Context, agecat, Sex, 
+          Student, university, Subject, location, parent_degree, education_simple, contrausenow, contrausepast, partnercontrause, contranowsimple, contrapastsimple, contrapartsimple, contra_overall, usecontraever, plannedcontrachange, sideffectssim, stopcozside, sevside, kidsimple, partnersexsimple, sexualitysimple) %>%
+  
+    tbl_uvregression(
+        method = glmer,
+        y = score,
+        method.args = list(family = binomial),
+        exponentiate = TRUE,
+        pvalue_fun = function(x) style_pvalue(x, digits = 2),
+        formula = "{y} ~ {x}+ (1|Sessionid)"
+    ) # %>%
+ # add_global_p() %>% # add global p-value
+#  add_nevent() %>% # add number of events of the outcome
+ # add_q() %>% # adjusts global p-values for multiple testing
+#  bold_p() %>% # bold p-values under a given threshold (default 0.05)
+#  bold_p(t = 0.10, q = TRUE) %>% # now bold q-values under the threshold of 0.10
+# bold_labels()
+
+```
+
+# Testing basic and null models
+
+```{r nulls}
+
+modelnull<- glmer(score ~ 1 + (1 | Sessionid), data = subset(alldata), family = binomial(link='logit'))
+#summary(modelnull)
+
+modelbasic1 <- glmer(score ~ `Side_effect` + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelbasic1)
+
+modelbasic2 <- glmer(score ~ Context + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelbasic2)
+
+modelbasic3 <- glmer(score ~ `Side_effect` + Context + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelbasic3)
+```
+
+## Test models with variables with p-value <0.2
+
+``` {r testing univaraite variables}
+
+#education level - not significant
+modelunivar1 <- glmer(score ~ `Side_effect` + Context + Sex + education_simple + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelunivar1)
+
+#past contraceptive use - not significant
+modelunivar2 <- glmer(score ~ `Side_effect` + Context + Sex + contrausepast + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelunivar2)
+
+#type of contraception used in past - not significant
+modelunivar3 <- glmer(score ~ `Side_effect` + Context + Sex + contrapastsimple + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelunivar3)
+
+#experienced contraceptive Side_effects - not significant
+modelunivar4 <- glmer(score ~ `Side_effect` + Context + Sex + sideffectssim + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelunivar4)
+
+#severity of side effects - doesn't converge, even not significant
+modelunivar5 <- glmer(score ~ `Side_effect` + Context + Sex + sevside + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelunivar5)
+
+```
+
+# Final models options
+```{r testing}
+modelfinal1 <- glmer(score ~ `Side_effect` + Context + Sex + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelfinal1)
+
+modelfinal2 <- glmer(score ~ `Side_effect` + Context + Sex + location + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelfinal2)
+
+modelfinal3 <- glmer(score ~ `Side_effect` + Context + Sex + Student + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelfinal3)
+
+modelfinal4 <- glmer(score ~ `Side_effect` + Context + location + Student + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelfinal4)
+
+modelfinal5 <- glmer(score ~ `Side_effect` + Context + Sex + Subject + (1 | Sessionid), data = alldata, family = binomial(link='logit'))
+#summary(modelfinal5)
+
+
+```
+## grouped health AIC = 922.8644
+## separate health AIC = 921.0666
+``` {r model selection}
+
+AIC(modelnull)
+AIC(modelbasic1)
+AIC(modelbasic2)
+AIC(modelbasic3)
+AIC(modelfinal1)
+AIC(modelfinal2)
+AIC(modelfinal3)
+AIC(modelfinal4)
+AIC(modelfinal5)
+
+###### so models 5 gives lowest AIC values (both within 1 of eachother)
+
+
+
+```
+
+# Model selection plot - annex
+
+```{r plot of model selection}
+p2<-tab_model(modelfinal2, modelfinal3, modelfinal4, show.aic = T)
+p2
+```
+
+# Model selection plot - main text
+
+```{r plot of model selection}
+p<-tab_model(modelbasic3, modelfinal1, modelfinal5, show.aic = T)
+p
+```
+
+# Interactions
+
+``` {r interact}
+modelinter1 <- glmer(score ~ `Side_effect`*Sex + (1 | Sessionid), data = subset(alldata), family = binomial(link='logit'))
+summary(modelinter1)
+
+modelinter2 <- glmer(score ~ Context*Sex + (1 | Sessionid), data = subset(alldata), family = binomial(link='logit'))
+summary(modelinter2)
+
+modelinter3 <- glmer(score ~ `Side_effect` * Context + (1 | Sessionid), data = alldata, family = binomial(link="logit"))
+summary(modelinter3)
+
+```
+
+# Check model assumptions
+good resource: https://towardsdatascience.com/assumptions-of-logistic-regression-clearly-explained-44d85a22b290 
+```{r model perf}
+##this works when you make the plot window very big
+performance::check_model(modelfinal5)
+#took the binned residuals plot from this
+
+#test for multicolinearity. VIF value below 5 suggests lack of multicolinearity
+car::vif(modelfinal5)
+
+# 2. No complete separation (only applicable to binary logistic regression models)
+## i dont think this test is very useful.
+check_complete_separation <- function(modelfinal5) {
+  predictors <- all.vars(formula(modelfinal5))[-1]
+  complete_separation <- sapply(predictors, function(predictor) {
+    if (nlevels(alldata[[predictor]]) == 2) {
+      tryCatch(vcdExtra::mosaicglm(as.formula(paste0("score ~ ", predictor)), data = alldata), error = function(e) TRUE)
+    } else {
+      FALSE
+    }
+  })
+  if (any(complete_separation)) {
+    cat("Warning: Complete separation detected for the following predictors:\n")
+    cat(paste0(" - ", predictors[complete_separation]), "\n")
+    cat("Consider removing these predictors causing complete separation.\n")
+  }
+}
+
+check_complete_separation(modelfinal5)
+
+# 3. Adequate sample size
+# Ensure that each category of categorical predictors has a sufficient number of observations
+
+# 4. Proportional odds assumption (only applicable to ordinal categorical predictors)
+# Example for 'Context' as an ordinal categorical variable
+if ("Context" %in% names(alldata)) {
+  ordinal_model <- polr(Context ~ 1, data = alldata, method = "logistic")
+  brant_test <- brant(ordinal_model, modelfinal5)
+  print(brant_test)
+}
+
+# 5. Independence of observations
+# Assumes your data is already appropriately randomized or sampled to ensure independence
+
+```
+
+```{r outlier check}
+## check for strongly influential outliers
+# Get influence measures
+
+
+
+```
+
+# Effect plots
+
+``` {r effect plots}
+#need to rename column for purpose of effect plot
+
+# Plot effect plot
+plot(allEffects(modelfinal5))
+
+```
+
+# Forest plot
+
+``` {r bar}
+plot_model(modelfinal5, order.terms = c(1, 2, 3, 4, 5, 6), vline.color = "red", show.values = TRUE, value.offset = .3, title = "")
+```
+
+# Random effect strucutre
+
+test nesting the models with different random effects
+```{r random effects}
+m1 <- glmmTMB(score ~ 1+ (1 | Sessionid), data = alldata, family = binomial)
+m2 <- glmmTMB(score ~ 1+ (1 | Sessionid/Context), data = alldata, family = binomial)
+m3 <- glmmTMB(score ~ 1+ (1 | Sessionid/location), data = alldata, family = binomial)
+m4 <- glmmTMB(score ~ 1 + (1 | location), data = alldata, family = binomial)
+AIC(m1)
+AIC(m2)
+AIC(m3)
+AIC(m4)
+
+# AIC is higher for m2 and not so different - most variance due to inter-individual variance
+```
+
+

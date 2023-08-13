@@ -1,0 +1,298 @@
+---
+title: "1. Data transform"
+output: html_document
+date: "2023-06-09"
+---
+
+```{r pack}
+r <- getOption("repos")
+r["CRAN"] <- "https://cran.biotools.fr/"
+options(repos = r)
+install.packages("pacman")
+library("pacman")
+p_load(dplyr)
+p_load(rio)
+p_load(here)
+```
+
+```{r load_data}
+modified <- import(here ("data","source","maindata.csv")) # go find the file in the working directory /data/created...this is reproducible should work on all machines if you open the project using the R project file, which sets the wd in the project folder
+
+```
+
+# Data manipulation
+## Partner sex column
+```{r newvar}
+
+# Add partner_sex column
+modified$partner_sex <- ifelse(modified$sexuality == "Hétérosexuel",
+                               ifelse(modified$sex == "Homme", "woman", "man"),
+                               ifelse(modified$sexuality == "Homosexuel",
+                                      ifelse(modified$sex == "Homme", "man", "woman"),
+                                      ifelse(modified$sexuality == "Asexuel", "none",
+                                             ifelse(modified$sexuality %in% c("Bisexuel", "Pansexuel"), "both", NA))))
+
+```
+## Add order column
+
+```{r order}
+modified$order <- ifelse(modified$treatment %in% c(4, 5, 6), 2,
+                         ifelse(modified$treatment %in% c(1, 2, 3), 1, NA))
+```
+## Treatment
+
+originally we had 6 treatments, 3 different ones and each could be in 2 possible orders. Now instead we want to combine these into 1 set of treatments.
+```{r treat}
+
+modified$treatment2 <- ifelse(modified$treatment == 4, 1,
+                              ifelse(modified$treatment == 5, 2,
+                                     ifelse(modified$treatment == 6, 3, modified$treatment)))
+```
+## contraception type
+
+Split type of contraception used now into four separate columns so it can be identified individually.
+```{r cont}
+split_typenow <- strsplit(as.character(modified$typenow), ",")
+modified$first_contnow <- sapply(split_typenow, function(x) ifelse(length(x) >= 1, x[1], NA))
+modified$second_contnow <- sapply(split_typenow, function(x) ifelse(length(x) >= 2, x[2], NA))
+modified$third_contnow <- sapply(split_typenow, function(x) ifelse(length(x) >= 3, x[3], NA))
+modified$fourth_contnow <- sapply(split_typenow, function(x) ifelse(length(x) >= 4, x[4], NA))
+
+# Split typepast column into four separate columns
+split_typepast <- strsplit(as.character(modified$typepast), ",")
+modified$first_contpast <- sapply(split_typepast, function(x) ifelse(length(x) >= 1, x[1], NA))
+modified$second_contpast <- sapply(split_typepast, function(x) ifelse(length(x) >= 2, x[2], NA))
+modified$third_contpast <- sapply(split_typepast, function(x) ifelse(length(x) >= 3, x[3], NA))
+modified$fourth_contpast <- sapply(split_typepast, function(x) ifelse(length(x) >= 4, x[4], NA))
+
+# Split type_partner column into four separate columns
+split_typepartner <-strsplit(as.character(modified$type_partner), ",")
+modified$first_contpart <- sapply(split_typepartner, function(x) ifelse(length(x) >= 1, x[1], NA))
+modified$second_contpart <- sapply(split_typepartner, function(x) ifelse(length(x) >= 2, x[2], NA))
+modified$third_contpart <- sapply(split_typepartner, function(x) ifelse(length(x) >= 3, x[3], NA))
+modified$fourth_contpart <- sapply(split_typepartner, function(x) ifelse(length(x) >= 4, x[4], NA))
+```
+## Location
+``` {r loc}
+modified$location <- ifelse(modified$date %in% c("2023-05-24", "2023-05-17"), 1, 0)
+```
+## Age
+Create new column for age
+```{r age}
+# Convert 'date' column to Date format
+modified$date <- as.Date(modified$date)
+
+# Extract year and month from 'date'
+collected_year <- format(modified$date, "%Y")
+collected_month <- format(modified$date, "%m")
+
+# Calculate age based on 'birth_year', 'birth_month', and collected year/month
+modified$birth_year <- as.integer(modified$birth_year)
+modified$birth_month <- as.integer(modified$birth_month)
+
+age_decimal <- as.numeric(as.Date(paste(collected_year, collected_month, "01", sep = "-"), "%Y-%m-%d") - 
+                            as.Date(paste(modified$birth_year, modified$birth_month, "01", sep = "-"), "%Y-%m-%d")) / 365.25
+
+modified$age <- round(age_decimal, 1)
+```
+## Time writing and time reading
+```{r time}
+
+# Convert timestamp columns to POSIXct format
+modified$timesubmits1 <- as.POSIXct(modified$timesubmits1, format = "%H:%M:%S")
+modified$timesubmits2 <- as.POSIXct(modified$timesubmits2, format = "%H:%M:%S")
+modified$timesubmits3 <- as.POSIXct(modified$timesubmits3, format = "%H:%M:%S")
+
+# Calculate timereading as the difference between timesubmits2 and timesubmits1 in seconds
+modified$timereading <- as.numeric(difftime(modified$timesubmits2, modified$timesubmits1, units = "secs"))
+
+# Calculate timewriting as the difference between timesubmits3 and timesubmits2 in seconds
+modified$timewriting <- as.numeric(difftime(modified$timesubmits3, modified$timesubmits2, units = "secs"))
+```
+## Contraception classification
+Create a simpler classification for contraception use, just whether it is condom or other types of contraception.
+``` {r class}
+
+# Create 'contranow' column 
+modified$contranow <- ifelse(modified$usecontranow == 'Non', 'none',
+                             ifelse(modified$first_contnow == 'Préservatif' &
+                                      is.na(modified$second_contnow) &
+                                      is.na(modified$third_contnow) &
+                                      is.na(modified$fourth_contnow),
+                                    'condom', 'contra'))
+
+# Create 'contrapast' column
+modified$contrapast <- ifelse(modified$usecontrapast == 'Non', 'none',
+                              ifelse(modified$first_contpast == 'Préservatif' &
+                                       is.na(modified$second_contpast) &
+                                       is.na(modified$third_contpast) &
+                                       is.na(modified$fourth_contpast),
+                                     'condom', 'contra'))
+# Create 'contrapart' column
+modified$contrapart <- ifelse(modified$partner == 'Non', 'none',
+                              ifelse(modified$first_contpart == 'Préservatif' &
+                                       is.na(modified$second_contpart) &
+                                       is.na(modified$third_contpart) &
+                                       is.na(modified$fourth_contpart),
+                                     'condom', 'contra'))
+# Create 'contra_overall' column
+modified$contra_overall <- ifelse(modified$contranow == 'contra' | modified$contrapast == 'contra', 'contra',
+                                  ifelse(modified$contranow == 'condom' | modified$contrapast == 'condom', 'condom',
+                                         ifelse(is.na(modified$contranow) & is.na(modified$contrapast), 'none', 'none')))
+```
+
+## Male contra type check
+Check for instances when men say that they use female-based contraception (now or in the past)
+
+``` {r male hormonal contra check.options}
+# Create 'has_other_contra' column for male participants
+modified$male_contra_use_now <- ifelse(modified$sex == 'Homme',
+                                    ifelse((modified$first_contnow != 'Préservatif' & modified$first_contnow != 'NA' & modified$first_contnow != 'NULL') |
+                                           (modified$second_contnow != 'Préservatif' & modified$second_contnow != 'NA' & modified$second_contnow != 'NULL') |
+                                           (modified$third_contnow != 'Préservatif' & modified$third_contnow != 'NA' & modified$third_contnow != 'NULL') |
+                                           (modified$fourth_contnow != 'Préservatif' & modified$fourth_contnow != 'NA' & modified$fourth_contnow != 'NULL'),
+                                           TRUE, FALSE),
+                                    FALSE)
+# Print the result
+summary_table <- table(modified$male_contra_use_now)
+print(summary_table)
+
+#two men recorded that they used non-condom contra now.
+```
+
+``` {r check male contra use past}
+
+# Create 'has_other_contra' column for contpast columns
+modified$male_contra_use_past <- ifelse(modified$sex == 'Homme',
+                                            ifelse((modified$first_contpast != 'Préservatif' & modified$first_contpast != 'NA' & modified$first_contpast != 'NULL') |
+                                                   (modified$second_contpast != 'Préservatif' & modified$second_contpast != 'NA' & modified$second_contpast != 'NULL') |
+                                                   (modified$third_contpast != 'Préservatif' & modified$third_contpast != 'NA' & modified$third_contpast != 'NULL') |
+                                                   (modified$fourth_contpast != 'Préservatif' & modified$fourth_contpast != 'NA' & modified$fourth_contpast != 'NULL'),
+                                                   TRUE, FALSE),
+                                            FALSE)
+
+stpast <- table(modified$male_contra_use_past)
+print(stpast) 
+
+# no men said they used female based contraception 
+```
+```{r edit male contra class}
+# for the two individuals identified, change the values
+
+# Update the values of contranow and contra_overall to 'condom' for session_id '7808_23137'
+modified$contranow[modified$sessionid == '7808_23137'] <- 'condom'
+modified$contra_overall[modified$sessionid == '7808_23137'] <- 'condom'
+
+
+##### for the person who recorded 'other' in their current type of contraceptive use
+
+modified$contranow[modified$sessionid == '7776_23144'] <- 'none'
+modified$contra_overall[modified$sessionid == '7776_23144'] <- 'condom'
+
+```
+
+## Sexuality
+Create a simpler column for sexuality
+``` {r sexuality}
+
+# Create 'sexualitysum' column
+modified$sexualitysum <- ifelse(modified$sexuality == 'Hétérosexuel', 'hetero', 'non-hetero')
+```
+## Kids
+Column for whether participants have children
+```{r kids}
+modified$kids <- ifelse(modified$child == 'Non', 'no',
+                        ifelse(modified$child == 'j\'ai des enfants', 'have', 'yes'))
+```
+## side-effects
+Simpler column for whether participants have experienced side-effects
+
+```{r side}
+# Create new column 'sideeffectssim'
+modified <- modified %>%
+   mutate(sideeffectsim = case_when(
+    sideffects %in% c("", "Non", "NA", "NULL") ~ "no",
+    sideffects %in% c("Oui, actuellement", "Oui, dans le passé", "Oui, dans le passé,Oui, actuallement") ~ "yes",
+    TRUE ~ "yes"
+  ))
+```
+## add new column for partner sex
+
+```{r partner sex}
+# Add a new column 'partnersex2' based on 'partner_sex'
+modified$partnersex2 <- ifelse(modified$partner_sex %in% c("woman", "both"), "woman", "other")
+```
+
+## add column for whether participants use contraception now
+```{r contranow}
+modified$usecontra <- ifelse(modified$usecontranow == "Oui" | modified$usecontrapast == "Oui", "yes", "no")
+```
+
+## add column that classifies subject
+``` {r sub class}
+modified$Subject <- ifelse(modified$subject == "Médecine" | modified$subject == "Sciences", "Science",
+                            ifelse(modified$subject == "Arts" | modified$subject == "Autre" | modified$subject == "Sciences humaines", "Other",
+                                   ifelse(modified$subject == "", "Not student", modified$subject)))
+```
+## Education change column
+
+``` {r edu change}
+modified <- modified %>%
+  mutate(education_simple = case_when(
+    education_level %in% c("Bac +1", "Bac +2", "Bac +3", "Bac +4", "Bac +5") ~ "higher",
+    education_level %in% c(
+      "Sans diplome", "Certificat d-etude primaire (CEP)", "Troisieme",
+      "CAP/BEP/BEPC/BEPS/Brevet élémentaire",
+      "Brevet de Technicien, Brevet prof, BEI, BEC, BEA",
+      "Baccalaureat technologique ou professionnel",
+      "Bac general"
+    ) ~ "lower",
+    education_level == "" ~ "Not Student",  # If education_level is blank, set as "Not Student"
+    TRUE ~ NA_character_  # If education_level doesn't match any condition, set as NA
+  ))
+
+```
+## rename some variables
+``` {r rename}
+modified <- modified %>%
+  mutate(student = ifelse(student == "", NA, ifelse(student == "Oui", "Yes", ifelse(student == "Non", "No", student))))
+modified <- modified %>%
+  mutate(location = ifelse(location == "0", "University", ifelse(location == "1", "Zoo", location)))
+
+modified <- modified %>%
+  mutate(sex = ifelse(sex == "Homme", "Male", ifelse(sex == "Femme", "Female", sex)))
+
+names(modified)[names(modified) == "sex"] <- "Sex"
+names(modified)[names(modified) == "student"] <- "Student"
+
+```
+
+## test
+Add a column for the trials that were a test
+```{r test}
+# Add a column for the 'test' sessions
+session_ids <- c(  "679_23145", "9299_23131", "4713_23131", "7662_23131", "427_23131", "7493_23131", "3205_23132", "1457_23135", "7355_23135", "1425_23135", "8763_23135", "5036_23135", "325_23135", "463_23135", "7179_23135",
+"343_23137", "343_23143", "1496_23144",               "9299_23131", "151_23131", "4713_23131", "4956_23131", "1866_23131", "5636_23131", "7662_23131", "427_23131",  "7516_23131", "4981_23131", "8133_23131", "4520_23131", "7493_23131", "9698_23131", "4244_23131", "6298_23131",
+"981_23131", "8620_23131", "3205_23132", "4705_23134", "9561_23135", "8792_23135", "5928_23135", "9517_23135",
+"9241_23135", "8285_23135", "9057_23135", "4400_23135", "4867_23135", "1719_23135", "8942_23135", "8670_23135",
+"3173_23135", "9546_23135", "5258_23135", "3738_23135", "3326_23135", "9223_23135", "1457_23135", "7355_23135",
+"1135_23135", "6640_23135", "1425_23135", "8763_23135", "6853_23135", "5036_23135", "325_23135", "463_23135",
+"6701_23135", "7179_23135", "343_23143", "1496_23144")
+
+# Create the 'test' column
+modified$test <- ifelse(modified$sessionid %in% session_ids, "yes", "no")
+```
+## Data changes
+change the records for the data that was wrong
+```{r change}
+modified[modified$sessionid %in% c("5156_23145", "2875_23144", "4713_23144"), c("treatment", "treatment2")] <- 2
+modified[modified$sessionid == "4713_23144", c("birth_year", "age")] <- c(1949, 74.1)
+
+```
+# Export
+
+```{r exclusions}
+
+# Save the modified_excluded data frame as a CSV file
+export(modified, here ("Data","Created","modified_table.csv")) # go
+```
